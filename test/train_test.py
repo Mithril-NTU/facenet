@@ -135,7 +135,7 @@ class TrainTest(unittest.TestCase):
                 '--model_def', 'models.inception_resnet_v1',
                 '--epoch_size', '1',
                 '--max_nrof_epochs', '1',
-                '--batch_size', '6',
+                '--batch_size', '2',
                 '--people_per_batch', '2',
                 '--images_per_person', '3',
                 '--lfw_pairs', self.lfw_pairs_file,
@@ -155,7 +155,7 @@ class TrainTest(unittest.TestCase):
                 '--embedding_size', '512',
                 '--epoch_size', '1',
                 '--max_nrof_epochs', '1',
-                '--batch_size', '6',
+                '--batch_size', '2',
                 '--people_per_batch', '2',
                 '--images_per_person', '3',
                 '--lfw_pairs', self.lfw_pairs_file,
@@ -181,7 +181,7 @@ class TrainTest(unittest.TestCase):
                 self.pretrained_model,
                 '--lfw_pairs', 'data/lfw/pairs_small.txt',
                 '--lfw_nrof_folds', '2',
-                '--lfw_batch_size', '6']
+                '--lfw_batch_size', '2']
         subprocess.call(argv)
  
     def test_validate_on_lfw_frozen_graph(self):
@@ -194,7 +194,7 @@ class TrainTest(unittest.TestCase):
                 frozen_model,
                 '--lfw_pairs', self.lfw_pairs_file,
                 '--lfw_nrof_folds', '2',
-                '--lfw_batch_size', '6']
+                '--lfw_batch_size', '2']
         subprocess.call(argv)
  
     def test_freeze_graph(self):

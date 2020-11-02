@@ -333,7 +333,7 @@ def get_image_paths(facedir):
     image_paths = []
     if os.path.isdir(facedir):
         images = os.listdir(facedir)
-        image_paths = [os.path.join(facedir,img) for img in images]
+        image_paths = [os.path.join(facedir,img) for img in images if img.endswith(('png', 'jpg'))]
     return image_paths
   
 def split_dataset(dataset, split_ratio, min_nrof_images_per_class, mode):

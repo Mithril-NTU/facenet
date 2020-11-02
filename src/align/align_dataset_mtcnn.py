@@ -81,6 +81,7 @@ def main(args):
                 if not os.path.exists(output_filename):
                     try:
                         img = misc.imread(image_path)
+                        #print('>>'*10, 'Processing %s'%(image_path), '<<'*10)
                     except (IOError, ValueError, IndexError) as e:
                         errorMessage = '{}: {}'.format(image_path, e)
                         print(errorMessage)
