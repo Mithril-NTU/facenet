@@ -40,6 +40,7 @@ import facenet
 import lfw
 
 from tensorflow.python.ops import data_flow_ops
+from scipy.sparse import load_npz
 
 from six.moves import xrange  # @UnresolvedImport
 
@@ -76,6 +77,9 @@ def main(args):
         pairs = lfw.read_pairs(os.path.expanduser(args.lfw_pairs))
         # Get the paths for the corresponding images
         lfw_paths, actual_issame = lfw.get_paths(os.path.expanduser(args.lfw_dir), pairs)
+        full_label_matrix = None
+        if args.full_label_matrix != '':
+            full_label_matrix = load_npz(args.full_label_matrix)
         
     
     with tf.Graph().as_default():
@@ -111,6 +115,7 @@ def main(args):
                     image = tf.random_crop(image, [args.image_size, args.image_size, 3])
                 else:
                     image = tf.image.resize_image_with_crop_or_pad(image, args.image_size, args.image_size)
+                    #image = tf.image.resize_images(image, args.image_size, args.image_size)
                 if args.random_flip:
                     image = tf.image.random_flip_left_right(image)
     
@@ -192,7 +197,7 @@ def main(args):
                 if args.lfw_dir:
                     evaluate(sess, lfw_paths, embeddings, labels_batch, image_paths_placeholder, labels_placeholder, 
                             batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op, actual_issame, args.batch_size, 
-                            args.lfw_nrof_folds, log_dir, step, summary_writer, args.embedding_size)
+                            args.lfw_nrof_folds, log_dir, step, summary_writer, args.embedding_size, full_label_matrix)
 
     return model_dir
 
@@ -227,7 +232,6 @@ def train(args, sess, dataset, epoch, image_paths_placeholder, labels_placeholde
         print('%.3f' % (time.time()-start_time))
 
         # Select triplets based on the embeddings
-        print('Selecting suitable triplets for training')
         triplets, nrof_random_negs, nrof_triplets = select_triplets(emb_array, num_per_class, 
             image_paths, args.people_per_batch, args.alpha)
         selection_time = time.time() - start_time
@@ -236,6 +240,7 @@ def train(args, sess, dataset, epoch, image_paths_placeholder, labels_placeholde
 
         # Perform training on the selected triplets
         nrof_batches = int(np.ceil(nrof_triplets*3/args.batch_size))
+        print('triplet:%d, nrof_batches: %d'%(nrof_triplets, nrof_batches))
         triplet_paths = list(itertools.chain(*triplets))
         labels_array = np.reshape(np.arange(len(triplet_paths)),(-1,3))
         triplet_paths_array = np.reshape(np.expand_dims(np.array(triplet_paths),1), (-1,3))
@@ -292,8 +297,8 @@ def select_triplets(embeddings, nrof_images_per_class, image_paths, people_per_b
                 p_idx = emb_start_idx + pair
                 pos_dist_sqr = np.sum(np.square(embeddings[a_idx]-embeddings[p_idx]))
                 neg_dists_sqr[emb_start_idx:emb_start_idx+nrof_images] = np.NaN
-                #all_neg = np.where(np.logical_and(neg_dists_sqr-pos_dist_sqr<alpha, pos_dist_sqr<neg_dists_sqr))[0]  # FaceNet selection
-                all_neg = np.where(neg_dists_sqr-pos_dist_sqr<alpha)[0] # VGG Face selecction
+                all_neg = np.where(np.logical_and(neg_dists_sqr-pos_dist_sqr<alpha, pos_dist_sqr<neg_dists_sqr))[0]  # FaceNet selection
+                #all_neg = np.where(neg_dists_sqr-pos_dist_sqr<alpha)[0] # VGG Face selecction
                 nrof_random_negs = all_neg.shape[0]
                 if nrof_random_negs>0:
                     rnd_idx = np.random.randint(nrof_random_negs)
@@ -340,13 +345,16 @@ def sample_people(dataset, people_per_batch, images_per_person):
 
 def evaluate(sess, image_paths, embeddings, labels_batch, image_paths_placeholder, labels_placeholder, 
         batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op, actual_issame, batch_size, 
-        nrof_folds, log_dir, step, summary_writer, embedding_size):
+        nrof_folds, log_dir, step, summary_writer, embedding_size, full_label_matrix):
     start_time = time.time()
     # Run forward pass to calculate embeddings
     print('Running forward pass on LFW images: ', end='')
     
     nrof_images = len(actual_issame)*2
     assert(len(image_paths)==nrof_images)
+    _res = 3 - int(nrof_images % 3)
+    nrof_images += _res
+    image_paths = image_paths + image_paths[-1*_res:]
     labels_array = np.reshape(np.arange(nrof_images),(-1,3))
     image_paths_array = np.reshape(np.expand_dims(np.array(image_paths),1), (-1,3))
     sess.run(enqueue_op, {image_paths_placeholder: image_paths_array, labels_placeholder: labels_array})
@@ -359,24 +367,39 @@ def evaluate(sess, image_paths, embeddings, labels_batch, image_paths_placeholde
             learning_rate_placeholder: 0.0, phase_train_placeholder: False})
         emb_array[lab,:] = emb
         label_check_array[lab] = 1
+    emb_array = emb_array[:nrof_images - _res]
+    label_check_array = label_check_array[:nrof_images - _res] 
+    print(emb_array.shape[0]//2)
     print('%.3f' % (time.time()-start_time))
     
     assert(np.all(label_check_array==1))
     
-    _, _, accuracy, val, val_std, far = lfw.evaluate(emb_array, actual_issame, nrof_folds=nrof_folds)
-    
-    print('Accuracy: %1.3f+-%1.3f' % (np.mean(accuracy), np.std(accuracy)))
-    print('Validation rate: %2.5f+-%2.5f @ FAR=%2.5f' % (val, val_std, far))
-    lfw_time = time.time() - start_time
-    # Add validation loss and accuracy to summary
-    summary = tf.Summary()
-    #pylint: disable=maybe-no-member
-    summary.value.add(tag='lfw/accuracy', simple_value=np.mean(accuracy))
-    summary.value.add(tag='lfw/val_rate', simple_value=val)
-    summary.value.add(tag='time/lfw', simple_value=lfw_time)
-    summary_writer.add_summary(summary, step)
-    with open(os.path.join(log_dir,'lfw_result.txt'),'at') as f:
-        f.write('%d\t%.5f\t%.5f\n' % (step, np.mean(accuracy), val))
+    if full_label_matrix is None:
+        _, _, accuracy, val, val_std, far = lfw.evaluate(emb_array, actual_issame, nrof_folds=nrof_folds)
+        
+        print('Accuracy: %1.3f+-%1.3f' % (np.mean(accuracy), np.std(accuracy)))
+        print('Validation rate: %2.5f+-%2.5f @ FAR=%2.5f' % (val, val_std, far))
+        lfw_time = time.time() - start_time
+        # Add validation loss and accuracy to summary
+        summary = tf.Summary()
+        #pylint: disable=maybe-no-member
+        summary.value.add(tag='lfw/accuracy', simple_value=np.mean(accuracy))
+        summary.value.add(tag='lfw/val_rate', simple_value=val)
+        summary.value.add(tag='time/lfw', simple_value=lfw_time)
+        summary_writer.add_summary(summary, step)
+        with open(os.path.join(log_dir,'lfw_result.txt'),'at') as f:
+            f.write('%d\t%.5f\t%.5f\n' % (step, np.mean(accuracy), val))
+    else:
+        precision, ndcg = lfw.evaluate_patk(emb_array, full_label_matrix)
+        precision = "p@k"+ " " + " ".join([str(round(i*100,3)) for i in precision])
+        ndcg = "ndcg@k" + " " + " ".join([str(round(i*100,3)) for i in ndcg])
+        print(precision + "\t" + ndcg)
+        lfw_time = time.time() - start_time
+        summary = tf.Summary()
+        summary.value.add(tag='time/lfw', simple_value=lfw_time)
+        summary_writer.add_summary(summary, step)
+        with open(os.path.join(log_dir,'lfw_result.txt'),'at') as f:
+            print("%d"%step, precision + "\t" + ndcg, file=f)
 
 def save_variables_and_metagraph(sess, saver, summary_writer, model_dir, model_name, step):
     # Save the model checkpoint
@@ -475,6 +498,8 @@ def parse_arguments(argv):
     # Parameters for validation on LFW
     parser.add_argument('--lfw_pairs', type=str,
         help='The file containing the pairs to use for validation.', default='data/pairs.txt')
+    parser.add_argument('--full_label_matrix', type=str,
+        help='The file containing full label infos for validation.', default='')
     parser.add_argument('--lfw_dir', type=str,
         help='Path to the data directory containing aligned face patches.', default='')
     parser.add_argument('--lfw_nrof_folds', type=int,

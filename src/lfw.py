@@ -30,6 +30,8 @@ from __future__ import print_function
 import os
 import numpy as np
 import facenet
+import math
+import xclib.evaluation.xc_metrics as xc_metrics
 
 def evaluate(embeddings, actual_issame, nrof_folds=10, distance_metric=0, subtract_mean=False):
     # Calculate evaluation metrics
@@ -42,6 +44,33 @@ def evaluate(embeddings, actual_issame, nrof_folds=10, distance_metric=0, subtra
     val, val_std, far = facenet.calculate_val(thresholds, embeddings1, embeddings2,
         np.asarray(actual_issame), 1e-3, nrof_folds=nrof_folds, distance_metric=distance_metric, subtract_mean=subtract_mean)
     return tpr, fpr, accuracy, val, val_std, far
+
+def evaluate_patk(embeddings, Yte, k=5):
+    bsize = 1024
+
+    P = embeddings[0::2]
+    Q = embeddings[1::2] 
+    
+    # score_mat = P.dot(Q.T)
+    m, n = P.shape[0], Q.shape[0]
+    segment_m, segment_n = math.ceil(m/bsize), math.ceil(n/bsize)
+    precision, ndcg = np.zeros(k, dtype=P.dtype), np.zeros(k, dtype=P.dtype)
+
+    for i in range(segment_m):
+        i_start, i_end = i*bsize, min((i+1)*bsize, m)
+        score_mat = np.zeros((i_end-i_start, n), dtype=P.dtype)
+        for j in range(segment_n):
+            j_start, j_end = j*bsize, min((j+1)*bsize, n)
+            score_mat[:, j_start:j_end] = P[i_start:i_end].dot(Q[j_start:j_end].T)
+        np.fill_diagonal(score_mat[:, i_start:], -np.inf)
+        _precision = xc_metrics.precision(score_mat, Yte[i_start:i_end], k=k)
+        _ndcg = xc_metrics.ndcg(score_mat, Yte[i_start:i_end], k=k)
+        precision += (i_end-i_start)*_precision
+        ndcg += (i_end-i_start)*_ndcg
+    precision /= m
+    ndcg /= m
+
+    return precision, ndcg
 
 def get_paths(lfw_dir, pairs):
     nrof_skipped_pairs = 0
