@@ -44,5 +44,5 @@ def make(images_path, out_path):
     #data.create_dataset('cols', shape=(nnz,), data=cols)
     #data.close()
 
-make(sys.argv[1], out_path=os.path.join(os.path.dirname(sys.argv[1]), os.path.basename(sys.argv[1])+'.txt'))
+make(sys.argv[1], out_path=os.path.join(os.path.dirname(sys.argv[1]), os.path.basename(sys.argv[1])+'.va.txt'))
 #make('/tmp2/yusheng/CASIA-maxpy-clean_mtcnnpy_182_subset/', out_path='/tmp2/facenet/te.hdf5')
