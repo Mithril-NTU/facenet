@@ -19,7 +19,7 @@ def make(images_path, out_path):
         #image = plt.imread(str(path))
         #image.resize((image_size, image_size, 3))
         file_contents = tf.io.read_file(str(path))
-        image = tf.image.decode_image(file_contents, channels=3)
+        image = tf.image.decode_image(file_contents, channels=3, dtype=tf.float64)
         image = tf.image.resize_with_crop_or_pad(image, image_size, image_size)
         image = tf.image.per_image_standardization(image)
         dataset[i] = image.numpy()
