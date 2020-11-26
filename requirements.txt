@@ -8,3 +8,5 @@ matplotlib
 Pillow
 requests
 psutil
+Cython
+git+https://github.com/ryaninhust/pyxclib.git

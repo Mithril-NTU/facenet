@@ -32,6 +32,7 @@ import numpy as np
 import facenet
 import math
 import xclib.evaluation.xc_metrics as xc_metrics
+from sklearn.metrics import roc_auc_score
 
 def evaluate(embeddings, actual_issame, nrof_folds=10, distance_metric=0, subtract_mean=False):
     # Calculate evaluation metrics
@@ -44,6 +45,25 @@ def evaluate(embeddings, actual_issame, nrof_folds=10, distance_metric=0, subtra
     val, val_std, far = facenet.calculate_val(thresholds, embeddings1, embeddings2,
         np.asarray(actual_issame), 1e-3, nrof_folds=nrof_folds, distance_metric=distance_metric, subtract_mean=subtract_mean)
     return tpr, fpr, accuracy, val, val_std, far
+
+def evaluate_auc(embeddings, Yte):
+    bsize = 1024
+    rows, cols = Yte.nonzero()
+    actual_issame = Yte.data
+
+    P = embeddings[0::2][rows]
+    Q = embeddings[1::2][cols] 
+    
+    #assert P.shape[0] == Q.shape[0] and actual_issame.shape[0] == P.shape[0]
+    m = P.shape[0]
+    segment_m = math.ceil(m/bsize)
+    scores = np.zeros(m, dtype=P.dtype)
+
+    for i in range(segment_m):
+        i_start, i_end = i*bsize, min((i+1)*bsize, m)
+        scores[i_start:i_end] = np.sum(np.multiply(P[i_start:i_end, :], Q[i_start:i_end, :]), axis=-1)
+
+    return roc_auc_score(actual_issame, scores)
 
 def evaluate_patk(embeddings, Yte, k=5):
     bsize = 1024

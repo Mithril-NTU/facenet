@@ -41,6 +41,7 @@ import lfw
 
 from tensorflow.python.ops import data_flow_ops
 from scipy.sparse import load_npz
+from sklearn import metrics
 
 from six.moves import xrange  # @UnresolvedImport
 
@@ -181,6 +182,13 @@ def main(args):
 
             # Training and validation loop
             epoch = 0
+            step = sess.run(global_step, feed_dict=None)
+            # Evaluate on LFW
+            if args.lfw_dir:
+                evaluate(sess, lfw_paths, embeddings, labels_batch, image_paths_placeholder, labels_placeholder, 
+                        batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op, actual_issame, args.batch_size, 
+                        args.lfw_nrof_folds, log_dir, step, summary_writer, args.embedding_size, full_label_matrix, args.evaluate_by_auc)
+
             while epoch < args.max_nrof_epochs:
                 step = sess.run(global_step, feed_dict=None)
                 epoch = step // args.epoch_size
@@ -197,7 +205,7 @@ def main(args):
                 if args.lfw_dir:
                     evaluate(sess, lfw_paths, embeddings, labels_batch, image_paths_placeholder, labels_placeholder, 
                             batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op, actual_issame, args.batch_size, 
-                            args.lfw_nrof_folds, log_dir, step, summary_writer, args.embedding_size, full_label_matrix)
+                            args.lfw_nrof_folds, log_dir, step, summary_writer, args.embedding_size, full_label_matrix, args.evaluate_by_auc)
 
     return model_dir
 
@@ -345,7 +353,7 @@ def sample_people(dataset, people_per_batch, images_per_person):
 
 def evaluate(sess, image_paths, embeddings, labels_batch, image_paths_placeholder, labels_placeholder, 
         batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op, actual_issame, batch_size, 
-        nrof_folds, log_dir, step, summary_writer, embedding_size, full_label_matrix):
+        nrof_folds, log_dir, step, summary_writer, embedding_size, full_label_matrix, evaluate_by_auc):
     start_time = time.time()
     # Run forward pass to calculate embeddings
     print('Running forward pass on LFW images: ', end='')
@@ -370,15 +378,42 @@ def evaluate(sess, image_paths, embeddings, labels_batch, image_paths_placeholde
     emb_array = emb_array[:nrof_images - _res]
     label_check_array = label_check_array[:nrof_images - _res] 
     print(emb_array.shape[0]//2)
-    print('%.3f' % (time.time()-start_time))
+    print('Prediction time: %.3f' % (time.time()-start_time))
     
     assert(np.all(label_check_array==1))
     
-    if full_label_matrix is None:
-        _, _, accuracy, val, val_std, far = lfw.evaluate(emb_array, actual_issame, nrof_folds=nrof_folds)
+    if full_label_matrix is not None:
+        if evaluate_by_auc:
+            pass
+            auc = lfw.evaluate_auc(emb_array, full_label_matrix)
+            print('Area Under Curve (AUC): %1.3f' % auc)
+            lfw_time = time.time() - start_time
+            print('Evaluation Time: %.3f' % lfw_time)
+            summary = tf.Summary()
+            #pylint: disable=maybe-no-member
+            summary.value.add(tag='lfw/auc', simple_value=auc)
+            summary.value.add(tag='time/lfw', simple_value=lfw_time)
+            summary_writer.add_summary(summary, step)
+            with open(os.path.join(log_dir,'lfw_result.txt'),'at') as f:
+                f.write('%d\tauc: %.5f\n' % (step, auc))
+        else:
+            precision, ndcg = lfw.evaluate_patk(emb_array, full_label_matrix)
+            precision = "p@k"+ " " + " ".join([str(round(i*100,3)) for i in precision])
+            ndcg = "ndcg@k" + " " + " ".join([str(round(i*100,3)) for i in ndcg])
+            print(precision + "\t" + ndcg)
+            lfw_time = time.time() - start_time
+            summary = tf.Summary()
+            summary.value.add(tag='time/lfw', simple_value=lfw_time)
+            summary_writer.add_summary(summary, step)
+            with open(os.path.join(log_dir,'lfw_result.txt'),'at') as f:
+                print("%d"%step, precision + "\t" + ndcg, file=f)
+    else:
+        tpr, fpr, accuracy, val, val_std, far = lfw.evaluate(emb_array, actual_issame, nrof_folds=nrof_folds)
         
         print('Accuracy: %1.3f+-%1.3f' % (np.mean(accuracy), np.std(accuracy)))
         print('Validation rate: %2.5f+-%2.5f @ FAR=%2.5f' % (val, val_std, far))
+        auc = metrics.auc(fpr, tpr)
+        print('Area Under Curve (AUC): %1.3f' % auc)
         lfw_time = time.time() - start_time
         # Add validation loss and accuracy to summary
         summary = tf.Summary()
@@ -389,17 +424,6 @@ def evaluate(sess, image_paths, embeddings, labels_batch, image_paths_placeholde
         summary_writer.add_summary(summary, step)
         with open(os.path.join(log_dir,'lfw_result.txt'),'at') as f:
             f.write('%d\t%.5f\t%.5f\n' % (step, np.mean(accuracy), val))
-    else:
-        precision, ndcg = lfw.evaluate_patk(emb_array, full_label_matrix)
-        precision = "p@k"+ " " + " ".join([str(round(i*100,3)) for i in precision])
-        ndcg = "ndcg@k" + " " + " ".join([str(round(i*100,3)) for i in ndcg])
-        print(precision + "\t" + ndcg)
-        lfw_time = time.time() - start_time
-        summary = tf.Summary()
-        summary.value.add(tag='time/lfw', simple_value=lfw_time)
-        summary_writer.add_summary(summary, step)
-        with open(os.path.join(log_dir,'lfw_result.txt'),'at') as f:
-            print("%d"%step, precision + "\t" + ndcg, file=f)
 
 def save_variables_and_metagraph(sess, saver, summary_writer, model_dir, model_name, step):
     # Save the model checkpoint
@@ -496,6 +520,8 @@ def parse_arguments(argv):
         help='File containing the learning rate schedule that is used when learning_rate is set to to -1.', default='data/learning_rate_schedule.txt')
 
     # Parameters for validation on LFW
+    parser.add_argument('--evaluate_by_auc', 
+        help='Evaluating by AUC.', action='store_true', default=False)
     parser.add_argument('--lfw_pairs', type=str,
         help='The file containing the pairs to use for validation.', default='data/pairs.txt')
     parser.add_argument('--full_label_matrix', type=str,
