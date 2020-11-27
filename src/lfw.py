@@ -73,15 +73,17 @@ def evaluate_patk(embeddings, Yte, rng, k=5):
     rows = sample_idxes // n
     cols = sample_idxes % n 
     labels = np.ravel(Yte[rows, cols])
+    print('Calculate AUC on %d pairs'%len(labels))
 
     P = embeddings[0::2]
-    Q = embeddings[1::2] 
+    Q = embeddings[1::2]
     
     # score_mat = P.dot(Q.T)
     m, n = P.shape[0], Q.shape[0]
     segment_m, segment_n = math.ceil(m/bsize), math.ceil(n/bsize)
     precision, ndcg = np.zeros(k, dtype=P.dtype), np.zeros(k, dtype=P.dtype)
     predictions = list()
+    sub_labels = list()
 
     for i in range(segment_m):
         i_start, i_end = i*bsize, min((i+1)*bsize, m)
@@ -90,8 +92,9 @@ def evaluate_patk(embeddings, Yte, rng, k=5):
             j_start, j_end = j*bsize, min((j+1)*bsize, n)
             score_mat[:, j_start:j_end] = P[i_start:i_end].dot(Q[j_start:j_end].T)
         np.fill_diagonal(score_mat[:, i_start:], -np.inf)
-        _rows = rows[(rows >= i_start) & (rows < i_end) ] - i_start
-        _cols = cols[(rows >= i_start) & (rows < i_end) ]
+        _rows = rows[(rows >= i_start) & (rows < i_end)] - i_start
+        _cols = cols[(rows >= i_start) & (rows < i_end)]
+        sub_labels.append(labels[(rows >= i_start) & (rows < i_end)])
         predictions.append(np.nan_to_num(score_mat[_rows, _cols], neginf=-1))
         _precision = xc_metrics.precision(score_mat, Yte[i_start:i_end], k=k)
         _ndcg = xc_metrics.ndcg(score_mat, Yte[i_start:i_end], k=k)
@@ -99,7 +102,7 @@ def evaluate_patk(embeddings, Yte, rng, k=5):
         ndcg += (i_end-i_start)*_ndcg
     precision /= m
     ndcg /= m
-    auc = roc_auc_score(labels, np.hstack(predictions))
+    auc = roc_auc_score(np.hstack(sub_labels), np.hstack(predictions))
 
     return precision, ndcg, auc
 
