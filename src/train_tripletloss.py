@@ -397,16 +397,21 @@ def evaluate(sess, image_paths, embeddings, labels_batch, image_paths_placeholde
             with open(os.path.join(log_dir,'lfw_result.txt'),'at') as f:
                 f.write('%d\tauc: %.5f\n' % (step, auc))
         else:
-            precision, ndcg = lfw.evaluate_patk(emb_array, full_label_matrix)
-            precision = "p@k"+ " " + " ".join([str(round(i*100,3)) for i in precision])
-            ndcg = "ndcg@k" + " " + " ".join([str(round(i*100,3)) for i in ndcg])
-            print(precision + "\t" + ndcg)
+            precision, ndcg, auc = lfw.evaluate_patk(emb_array, full_label_matrix)
             lfw_time = time.time() - start_time
+            _precision = "p@k"+ " " + " ".join([str(round(i*100,3)) for i in precision])
+            _ndcg = "ndcg@k" + " " + " ".join([str(round(i*100,3)) for i in ndcg])
+            _auc = 'Area Under Curve (AUC): %1.3f' % auc
+            print(_precision + "\t" + _ndcg + "\t" + _auc)
+            print('Evaluation Time: %.3f' % lfw_time)
             summary = tf.Summary()
+            summary.value.add(tag='lfw/auc', simple_value=auc)
+            summary.value.add(tag='lfw/p@k', simple_value=precision[0])
+            summary.value.add(tag='lfw/ndcg@k', simple_value=ndcg[0])
             summary.value.add(tag='time/lfw', simple_value=lfw_time)
             summary_writer.add_summary(summary, step)
             with open(os.path.join(log_dir,'lfw_result.txt'),'at') as f:
-                print("%d"%step, precision + "\t" + ndcg, file=f)
+                print("%d"%step, _precision + "\t" + _ndcg + "\t" + _auc, file=f)
     else:
         tpr, fpr, accuracy, val, val_std, far = lfw.evaluate(emb_array, actual_issame, nrof_folds=nrof_folds)
         

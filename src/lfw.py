@@ -29,6 +29,7 @@ from __future__ import print_function
 
 import os
 import numpy as np
+from scipy.sparse import csr_matrix
 import facenet
 import math
 import xclib.evaluation.xc_metrics as xc_metrics
@@ -67,6 +68,11 @@ def evaluate_auc(embeddings, Yte):
 
 def evaluate_patk(embeddings, Yte, k=5):
     bsize = 1024
+    m, n = Yte.shape
+    sample_idxes = rng.choice(m*n, size=int(0.01*m*n))
+    rows = sample_idxes // n
+    cols = sample_idxes % n 
+    labels = np.ravel(Yte[rows, cols])
 
     P = embeddings[0::2]
     Q = embeddings[1::2] 
@@ -75,6 +81,7 @@ def evaluate_patk(embeddings, Yte, k=5):
     m, n = P.shape[0], Q.shape[0]
     segment_m, segment_n = math.ceil(m/bsize), math.ceil(n/bsize)
     precision, ndcg = np.zeros(k, dtype=P.dtype), np.zeros(k, dtype=P.dtype)
+    predictions = list()
 
     for i in range(segment_m):
         i_start, i_end = i*bsize, min((i+1)*bsize, m)
@@ -83,14 +90,18 @@ def evaluate_patk(embeddings, Yte, k=5):
             j_start, j_end = j*bsize, min((j+1)*bsize, n)
             score_mat[:, j_start:j_end] = P[i_start:i_end].dot(Q[j_start:j_end].T)
         np.fill_diagonal(score_mat[:, i_start:], -np.inf)
+        _rows = rows[rows >= i_start and row < i_end ] - i_start
+        _cols = cols[rows >= i_start and row < i_end ]
+        predictions.append(np.nan_to_num(score_mat[_rows, _cols], neginf=-1))
         _precision = xc_metrics.precision(score_mat, Yte[i_start:i_end], k=k)
         _ndcg = xc_metrics.ndcg(score_mat, Yte[i_start:i_end], k=k)
         precision += (i_end-i_start)*_precision
         ndcg += (i_end-i_start)*_ndcg
     precision /= m
     ndcg /= m
+    auc = roc_auc_score(labels, np.hstack(predictions))
 
-    return precision, ndcg
+    return precision, ndcg, auc
 
 def get_paths(lfw_dir, pairs):
     nrof_skipped_pairs = 0
