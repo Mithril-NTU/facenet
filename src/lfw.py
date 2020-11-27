@@ -66,7 +66,7 @@ def evaluate_auc(embeddings, Yte):
 
     return roc_auc_score(actual_issame, scores)
 
-def evaluate_patk(embeddings, Yte, k=5):
+def evaluate_patk(embeddings, Yte, rng, k=5):
     bsize = 1024
     m, n = Yte.shape
     sample_idxes = rng.choice(m*n, size=int(0.01*m*n))
@@ -90,8 +90,8 @@ def evaluate_patk(embeddings, Yte, k=5):
             j_start, j_end = j*bsize, min((j+1)*bsize, n)
             score_mat[:, j_start:j_end] = P[i_start:i_end].dot(Q[j_start:j_end].T)
         np.fill_diagonal(score_mat[:, i_start:], -np.inf)
-        _rows = rows[rows >= i_start and row < i_end ] - i_start
-        _cols = cols[rows >= i_start and row < i_end ]
+        _rows = rows[(rows >= i_start) & (rows < i_end) ] - i_start
+        _cols = cols[(rows >= i_start) & (rows < i_end) ]
         predictions.append(np.nan_to_num(score_mat[_rows, _cols], neginf=-1))
         _precision = xc_metrics.precision(score_mat, Yte[i_start:i_end], k=k)
         _ndcg = xc_metrics.ndcg(score_mat, Yte[i_start:i_end], k=k)

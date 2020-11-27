@@ -48,6 +48,7 @@ from six.moves import xrange  # @UnresolvedImport
 def main(args):
   
     network = importlib.import_module(args.model_def)
+    rng = np.random.RandomState(seed=101)
 
     subdir = datetime.strftime(datetime.now(), '%Y%m%d-%H%M%S')
     log_dir = os.path.join(os.path.expanduser(args.logs_base_dir), subdir)
@@ -187,7 +188,7 @@ def main(args):
             if args.lfw_dir:
                 evaluate(sess, lfw_paths, embeddings, labels_batch, image_paths_placeholder, labels_placeholder, 
                         batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op, actual_issame, args.batch_size, 
-                        args.lfw_nrof_folds, log_dir, step, summary_writer, args.embedding_size, full_label_matrix, args.evaluate_by_auc)
+                        args.lfw_nrof_folds, log_dir, step, summary_writer, args.embedding_size, full_label_matrix, args.evaluate_by_auc, rng)
 
             while epoch < args.max_nrof_epochs:
                 step = sess.run(global_step, feed_dict=None)
@@ -205,7 +206,7 @@ def main(args):
                 if args.lfw_dir:
                     evaluate(sess, lfw_paths, embeddings, labels_batch, image_paths_placeholder, labels_placeholder, 
                             batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op, actual_issame, args.batch_size, 
-                            args.lfw_nrof_folds, log_dir, step, summary_writer, args.embedding_size, full_label_matrix, args.evaluate_by_auc)
+                            args.lfw_nrof_folds, log_dir, step, summary_writer, args.embedding_size, full_label_matrix, args.evaluate_by_auc, rng)
 
     return model_dir
 
@@ -353,7 +354,7 @@ def sample_people(dataset, people_per_batch, images_per_person):
 
 def evaluate(sess, image_paths, embeddings, labels_batch, image_paths_placeholder, labels_placeholder, 
         batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op, actual_issame, batch_size, 
-        nrof_folds, log_dir, step, summary_writer, embedding_size, full_label_matrix, evaluate_by_auc):
+        nrof_folds, log_dir, step, summary_writer, embedding_size, full_label_matrix, evaluate_by_auc, rng):
     start_time = time.time()
     # Run forward pass to calculate embeddings
     print('Running forward pass on LFW images: ', end='')
@@ -397,7 +398,7 @@ def evaluate(sess, image_paths, embeddings, labels_batch, image_paths_placeholde
             with open(os.path.join(log_dir,'lfw_result.txt'),'at') as f:
                 f.write('%d\tauc: %.5f\n' % (step, auc))
         else:
-            precision, ndcg, auc = lfw.evaluate_patk(emb_array, full_label_matrix)
+            precision, ndcg, auc = lfw.evaluate_patk(emb_array, full_label_matrix, rng)
             lfw_time = time.time() - start_time
             _precision = "p@k"+ " " + " ".join([str(round(i*100,3)) for i in precision])
             _ndcg = "ndcg@k" + " " + " ".join([str(round(i*100,3)) for i in ndcg])

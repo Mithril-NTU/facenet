@@ -92,3 +92,10 @@ ENV/
 
 # PyCharm project setting
 .idea
+
+# data
+data/CASIA*
+data/lfw*
+data/trash/
+yaxu*
+*.hdf5
