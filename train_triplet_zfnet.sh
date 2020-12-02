@@ -9,11 +9,11 @@ python src/train_tripletloss.py \
 --model_def models.zfnet \
 --lfw_dir $2 \
 --optimizer RMSPROP \
---learning_rate 0.01 \
+--learning_rate 0.05 \
 --weight_decay 1e-4 \
 --gpu_memory_fraction 0.9 \
---epoch_size 240 \
---max_nrof_epochs 500 \
+--epoch_size 500 \
+--max_nrof_epochs 5000 \
 --lfw_pairs $3 \
 --full_label_matrix $4
 #--evaluate_by_auc

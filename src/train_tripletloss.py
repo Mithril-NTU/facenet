@@ -191,10 +191,10 @@ def main(args):
                         args.lfw_nrof_folds, log_dir, step, summary_writer, args.embedding_size, full_label_matrix, args.evaluate_by_auc, rng)
 
             while epoch < args.max_nrof_epochs:
-                step = sess.run(global_step, feed_dict=None)
-                epoch = step // args.epoch_size
+                #step = sess.run(global_step, feed_dict=None)
+                #epoch = step // args.epoch_size
                 # Train for one epoch
-                train(args, sess, train_set, epoch, image_paths_placeholder, labels_placeholder, labels_batch,
+                step = train(args, sess, train_set, epoch, image_paths_placeholder, labels_placeholder, labels_batch,
                     batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op, input_queue, global_step, 
                     embeddings, total_loss, train_op, summary_op, summary_writer, args.learning_rate_schedule_file,
                     args.embedding_size, anchor, positive, negative, triplet_loss)
@@ -207,6 +207,7 @@ def main(args):
                     evaluate(sess, lfw_paths, embeddings, labels_batch, image_paths_placeholder, labels_placeholder, 
                             batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op, actual_issame, args.batch_size, 
                             args.lfw_nrof_folds, log_dir, step, summary_writer, args.embedding_size, full_label_matrix, args.evaluate_by_auc, rng)
+                epoch += 1
 
     return model_dir
 
@@ -221,7 +222,8 @@ def train(args, sess, dataset, epoch, image_paths_placeholder, labels_placeholde
         lr = args.learning_rate
     else:
         lr = facenet.get_learning_rate_from_file(learning_rate_schedule_file, epoch)
-    while batch_number < args.epoch_size:
+    #while batch_number < args.epoch_size:
+    if 1:
         # Sample people randomly from the dataset
         image_paths, num_per_class = sample_people(dataset, args.people_per_batch, args.images_per_person)
         
@@ -260,7 +262,7 @@ def train(args, sess, dataset, epoch, image_paths_placeholder, labels_placeholde
         emb_array = np.zeros((nrof_examples, embedding_size))
         loss_array = np.zeros((nrof_triplets,))
         summary = tf.Summary()
-        step = 0
+        #step = 0
         while i < nrof_batches:
             start_time = time.time()
             batch_size = min(nrof_examples-i*args.batch_size, args.batch_size)
@@ -270,14 +272,15 @@ def train(args, sess, dataset, epoch, image_paths_placeholder, labels_placeholde
             loss_array[i] = err
             duration = time.time() - start_time
             print('Epoch: [%d][%d/%d]\tTime %.3f\tLoss %2.3f' %
-                  (epoch, batch_number+1, args.epoch_size, duration, err))
+                  (epoch, batch_number+1, nrof_batches, duration, err))
+                 #(epoch, batch_number+1, args.epoch_size, duration, err))
             batch_number += 1
             i += 1
             train_time += duration
-            summary.value.add(tag='loss', simple_value=err)
             
         # Add validation loss and accuracy to summary
         #pylint: disable=maybe-no-member
+        summary.value.add(tag='loss', simple_value=np.mean(err))
         summary.value.add(tag='time/selection', simple_value=selection_time)
         summary_writer.add_summary(summary, step)
     return step
