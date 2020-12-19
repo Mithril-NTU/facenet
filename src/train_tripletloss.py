@@ -183,6 +183,7 @@ def main(args):
 
             # Training and validation loop
             epoch = 0
+            accumulated_train_time = 0
             step = sess.run(global_step, feed_dict=None)
             # Evaluate on LFW
             if args.lfw_dir:
@@ -194,10 +195,11 @@ def main(args):
                 #step = sess.run(global_step, feed_dict=None)
                 #epoch = step // args.epoch_size
                 # Train for one epoch
-                step = train(args, sess, train_set, epoch, image_paths_placeholder, labels_placeholder, labels_batch,
+                step, train_time = train(args, sess, train_set, epoch, image_paths_placeholder, labels_placeholder, labels_batch,
                     batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op, input_queue, global_step, 
                     embeddings, total_loss, train_op, summary_op, summary_writer, args.learning_rate_schedule_file,
-                    args.embedding_size, anchor, positive, negative, triplet_loss)
+                    args.embedding_size, anchor, positive, negative, triplet_loss, accumulated_train_time)
+                accumulated_train_time += train_time
 
                 # Save variables and the metagraph if it doesn't exist already
                 save_variables_and_metagraph(sess, saver, summary_writer, model_dir, subdir, step)
@@ -215,7 +217,7 @@ def main(args):
 def train(args, sess, dataset, epoch, image_paths_placeholder, labels_placeholder, labels_batch,
           batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op, input_queue, global_step, 
           embeddings, loss, train_op, summary_op, summary_writer, learning_rate_schedule_file,
-          embedding_size, anchor, positive, negative, triplet_loss):
+          embedding_size, anchor, positive, negative, triplet_loss, accumulated_train_time):
     batch_number = 0
     
     if args.learning_rate>0.0:
@@ -228,13 +230,13 @@ def train(args, sess, dataset, epoch, image_paths_placeholder, labels_placeholde
         image_paths, num_per_class = sample_people(dataset, args.people_per_batch, args.images_per_person)
         
         print('Running forward pass on sampled images: ', end='')
-        start_time = time.time()
         nrof_examples = args.people_per_batch * args.images_per_person
         labels_array = np.reshape(np.arange(nrof_examples),(-1,3))
         image_paths_array = np.reshape(np.expand_dims(np.array(image_paths),1), (-1,3))
         sess.run(enqueue_op, {image_paths_placeholder: image_paths_array, labels_placeholder: labels_array})
         emb_array = np.zeros((nrof_examples, embedding_size))
         nrof_batches = int(np.ceil(nrof_examples / args.batch_size))
+        start_time = time.time()
         for i in range(nrof_batches):
             batch_size = min(nrof_examples-i*args.batch_size, args.batch_size)
             emb, lab = sess.run([embeddings, labels_batch], feed_dict={batch_size_placeholder: batch_size, 
@@ -257,7 +259,7 @@ def train(args, sess, dataset, epoch, image_paths_placeholder, labels_placeholde
         triplet_paths_array = np.reshape(np.expand_dims(np.array(triplet_paths),1), (-1,3))
         sess.run(enqueue_op, {image_paths_placeholder: triplet_paths_array, labels_placeholder: labels_array})
         nrof_examples = len(triplet_paths)
-        train_time = 0
+        train_time = selection_time 
         i = 0
         emb_array = np.zeros((nrof_examples, embedding_size))
         loss_array = np.zeros((nrof_triplets,))
@@ -277,13 +279,14 @@ def train(args, sess, dataset, epoch, image_paths_placeholder, labels_placeholde
             batch_number += 1
             i += 1
             train_time += duration
-            
+
         # Add validation loss and accuracy to summary
         #pylint: disable=maybe-no-member
         summary.value.add(tag='loss', simple_value=np.mean(err))
         summary.value.add(tag='time/selection', simple_value=selection_time)
+        summary.value.add(tag='time/selection_and_train', simple_value=accumulated_train_time + train_time)
         summary_writer.add_summary(summary, step)
-    return step
+    return step, train_time
   
 def select_triplets(embeddings, nrof_images_per_class, image_paths, people_per_batch, alpha):
     """ Select the triplets for training
@@ -309,8 +312,9 @@ def select_triplets(embeddings, nrof_images_per_class, image_paths, people_per_b
                 p_idx = emb_start_idx + pair
                 pos_dist_sqr = np.sum(np.square(embeddings[a_idx]-embeddings[p_idx]))
                 neg_dists_sqr[emb_start_idx:emb_start_idx+nrof_images] = np.NaN
-                all_neg = np.where(np.logical_and(neg_dists_sqr-pos_dist_sqr<alpha, pos_dist_sqr<neg_dists_sqr))[0]  # FaceNet selection
+                #all_neg = np.where(np.logical_and(neg_dists_sqr-pos_dist_sqr<alpha, pos_dist_sqr<neg_dists_sqr))[0]  # FaceNet selection
                 #all_neg = np.where(neg_dists_sqr-pos_dist_sqr<alpha)[0] # VGG Face selecction
+                all_neg = np.where(~np.isnan(neg_dists_sqr))[0] # All neg Face selecction
                 nrof_random_negs = all_neg.shape[0]
                 if nrof_random_negs>0:
                     rnd_idx = np.random.randint(nrof_random_negs)
